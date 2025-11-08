@@ -33,7 +33,12 @@
       "@pages": ["./src/pages"],
       "@pages/*": ["./src/pages/*"],
       "@types/*": ["./src/types/*"],
-      "@ui": ["./src/components/ui"]
+      "@ui": ["./src/components/ui"],
+      "@ui/*": ["./src/components/ui/*"],
+      "@cards": ["./src/components/cards"],
+      "@cards/*": ["./src/components/cards/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@hooks/*": ["./src/hooks/*"]
     }
   },
   "include": ["src"]

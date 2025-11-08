@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { Person, Film, Starship } from '@/types/api'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://swapi.dev/api'
 
@@ -27,6 +28,25 @@ export const getPersonById = async (id: string) => {
 export const getStarships = async () => {
   const response = await api.get('/starships')
   return response.data
+}
+
+export const getAllCollections = async () => {
+  const [people, films, starships] = await Promise.all([
+    getPeople(),
+    getFilms(),
+    getStarships(),
+  ])
+
+  return {
+    people: (people.results ?? []) as Person[],
+    films: (films.results ?? []) as Film[],
+    starships: (starships.results ?? []) as Starship[],
+    counts: {
+      people: typeof people.count === 'number' ? people.count : (people.results?.length ?? 0),
+      films: typeof films.count === 'number' ? films.count : (films.results?.length ?? 0),
+      starships: typeof starships.count === 'number' ? starships.count : (starships.results?.length ?? 0),
+    },
+  }
 }
 
 export default api
