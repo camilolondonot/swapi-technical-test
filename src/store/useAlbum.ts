@@ -163,13 +163,16 @@ export const useAlbum = create(
           Object.entries(sectionMap).forEach(([idKey, sticker]) => {
             if (!sticker) return
             const id = Number(idKey)
-            if (!merged.specialAssignments[section][id]) {
-              merged.specialAssignments[section][id] = sticker.specialClass ?? getRandomSpecialClass()
-            }
+            const persistedAssignment = merged.specialAssignments[section][id]
+            const defaultAssignment = isDefaultSpecial(section, id) ? 'gold' : null
+            const resolvedAssignment =
+              sticker.specialClass ?? persistedAssignment ?? defaultAssignment
+
+            merged.specialAssignments[section][id] = resolvedAssignment
 
             sectionMap[id] = {
               ...sticker,
-              specialClass: sticker.specialClass ?? merged.specialAssignments[section][id] ?? null,
+              specialClass: resolvedAssignment,
             }
           })
 

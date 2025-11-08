@@ -4,79 +4,221 @@ import { Modal } from '@ui'
 import { Button } from '@ui'
 import { useAlbum } from '@/store/useAlbum'
 import { useNotifications } from '@/store/useNotifications'
+import {
+  usePacks,
+  usePackCooldownSeconds,
+  isPackLocked,
+  formatCooldown,
+  type PackId,
+} from '@/store/usePacks'
 import { PersonCard, FilmCard, StarshipCard } from './index'
 
 const PACK_COST = 25
 
 interface PackContent {
-  people?: Person[]
-  films?: Film[]
-  starships?: Starship[]
+  people: Person[]
+  films: Film[]
+  starships: Starship[]
 }
+
+type SectionCounts = {
+  people: number
+  films: number
+  starships: number
+}
+
+interface PackConfiguration {
+  id: 'A' | 'B'
+  label: string
+  counts: SectionCounts
+}
+
+const PACK_CONFIGURATIONS: PackConfiguration[] = [
+  {
+    id: 'A',
+    label: '1 Película · 3 Personajes · 1 Nave',
+    counts: { films: 1, people: 3, starships: 1 },
+  },
+  {
+    id: 'B',
+    label: '0 Películas · 3 Personajes · 2 Naves',
+    counts: { films: 0, people: 3, starships: 2 },
+  },
+];
 
 interface PackCardProps {
   packNumber: number
-  content: PackContent
+  collections: {
+    people: Person[]
+    films: Film[]
+    starships: Starship[]
+  }
 }
 
-export const PackCard = ({ packNumber, content }: PackCardProps) => {
+const SECTION_LABELS: Record<'people' | 'films' | 'starships', string> = {
+  people: 'Personajes',
+  films: 'Películas',
+  starships: 'Naves',
+}
+
+const selectRandomItems = <T extends { url: string }>(items: T[], count: number, usedUrls: Set<string>) => {
+  if (count === 0) return []
+
+  const available = items.filter((item) => !usedUrls.has(item.url))
+  if (available.length < count) return null
+
+  const selection: T[] = []
+  const pool = [...available]
+
+  while (selection.length < count && pool.length > 0) {
+    const index = Math.floor(Math.random() * pool.length)
+    const [chosen] = pool.splice(index, 1)
+    selection.push(chosen)
+    usedUrls.add(chosen.url)
+  }
+
+  return selection.length === count ? selection : null
+}
+
+const generatePackContent = (
+  configuration: PackConfiguration,
+  collections: { people: Person[]; films: Film[]; starships: Starship[] },
+): PackContent | null => {
+  const usedUrls = new Set<string>()
+  const films = selectRandomItems(collections.films, configuration.counts.films, usedUrls)
+  if (films === null) return null
+
+  const people = selectRandomItems(collections.people, configuration.counts.people, usedUrls)
+  if (people === null) return null
+
+  const starships = selectRandomItems(collections.starships, configuration.counts.starships, usedUrls)
+  if (starships === null) return null
+
+  return {
+    films,
+    people,
+    starships,
+  }
+}
+
+export const PackCard = ({ packNumber, collections }: PackCardProps) => {
   const modalId = `pack-modal-${packNumber}`
   const revealModalId = `pack-reveal-${packNumber}`
   const points = useAlbum((state) => state.points)
   const buyPack = useAlbum((state) => state.buyPack)
   const addNotification = useNotifications((state) => state.addNotification)
+  const activePackId = usePacks((state) => state.activePackId)
+  const openPack = usePacks((state) => state.openPack)
+  const finishPack = usePacks((state) => state.finishPack)
+  const cooldownSeconds = usePackCooldownSeconds()
   const [isRevealed, setIsRevealed] = useState(false)
+  const [currentPackContent, setCurrentPackContent] = useState<PackContent | null>(null)
+  const [currentConfiguration, setCurrentConfiguration] = useState<PackConfiguration | null>(null)
 
-  const totalItems = 
-    (content.people?.length || 0) + 
-    (content.films?.length || 0) + 
-    (content.starships?.length || 0)
-
-  const peopleCount = content.people?.length || 0
-  const filmsCount = content.films?.length || 0
-  const starshipsCount = content.starships?.length || 0
-
+  const packId = packNumber as PackId
+  const isCurrentActive = activePackId === packId
+  const lockedByCooldown = isPackLocked(packId, activePackId, cooldownSeconds)
+  const anotherPackActive = activePackId !== null && !isCurrentActive
+  const isProcessingCurrent = isCurrentActive && isRevealed
   const canBuy = points >= PACK_COST
+  const disablePurchase = !canBuy || lockedByCooldown || anotherPackActive || isProcessingCurrent
+  const showCooldownBadge = !isCurrentActive && cooldownSeconds > 0
+
+  const totalItems = 5
 
   const handleBuy = () => {
-    if (buyPack()) {
-      setIsRevealed(true)
-      const infoModal = document.getElementById(modalId) as HTMLDialogElement
-      infoModal?.close()
-      setTimeout(() => {
-        const revealModal = document.getElementById(revealModalId) as HTMLDialogElement
-        revealModal?.showModal()
-      }, 100)
-    } else {
-      addNotification('No tienes suficientes puntos para comprar este sobre.', 'error')
+    if (lockedByCooldown) {
+      addNotification(`Este sobre estará disponible en ${formatCooldown(cooldownSeconds)}.`, 'warning')
+      return
     }
+
+    if (anotherPackActive) {
+      addNotification(`Ya estás abriendo el sobre #${activePackId}.`, 'warning')
+      return
+    }
+
+    if (!canBuy) {
+      addNotification('No tienes suficientes puntos para comprar este sobre.', 'error')
+      return
+    }
+
+    const opened = openPack(packId)
+    if (!opened) {
+      addNotification('Debes esperar a que termine el temporizador antes de abrir otro sobre.', 'warning')
+      return
+    }
+
+    const configuration = PACK_CONFIGURATIONS[Math.floor(Math.random() * PACK_CONFIGURATIONS.length)]
+    const generatedContent = generatePackContent(configuration, collections)
+
+    if (!generatedContent) {
+      finishPack()
+      addNotification('No hay suficientes cartas para generar este sobre. Intenta más tarde.', 'error')
+      return
+    }
+
+    const purchased = buyPack()
+    if (!purchased) {
+      finishPack()
+      addNotification('No tienes suficientes puntos para comprar este sobre.', 'error')
+      return
+    }
+
+    setCurrentConfiguration(configuration)
+    setCurrentPackContent(generatedContent)
+    setIsRevealed(true)
+    addNotification(`📦 Sobre #${packNumber} comprado por ${PACK_COST} puntos.`, 'success')
+
+    const infoModal = document.getElementById(modalId) as HTMLDialogElement
+    infoModal?.close()
+
+    setTimeout(() => {
+      const revealModal = document.getElementById(revealModalId) as HTMLDialogElement
+      revealModal?.showModal()
+    }, 100)
+  }
+
+  const handleRevealClose = () => {
+    setIsRevealed(false)
+    setCurrentPackContent(null)
+    setCurrentConfiguration(null)
+    finishPack()
   }
 
   return (
     <>
       <div
-        className="card bg-linear-to-br from-primary to-primary-focus shadow-lg cursor-pointer hover:shadow-xl transition-all transform hover:scale-105 text-primary-content"
+        className="relative card bg-linear-to-br from-primary to-primary-focus shadow-lg cursor-pointer hover:shadow-xl transition-all transform hover:scale-105 text-primary-content"
         onClick={() => {
           const modal = document.getElementById(modalId) as HTMLDialogElement
           modal?.showModal()
         }}
       >
+        {showCooldownBadge && (
+          <div className="badge badge-warning absolute right-4 top-4 gap-2">
+            <span>⏳</span>
+            <span>{formatCooldown(cooldownSeconds)}</span>
+          </div>
+        )}
+        {isCurrentActive && (
+          <div className="badge badge-success absolute right-4 top-4 gap-2">
+            <span>🔥</span>
+            <span>En proceso</span>
+          </div>
+        )}
         <div className="card-body p-6 text-center">
           <div className="text-4xl mb-2">📦</div>
           <h3 className="card-title text-xl justify-center">Sobre #{packNumber}</h3>
           <p className="opacity-90">
             {totalItems} {totalItems === 1 ? 'carta' : 'cartas'}
           </p>
-          <div className="mt-2 text-sm opacity-80">
-            {peopleCount > 0 && (
-              <span className="mr-2">👤 {peopleCount}</span>
-            )}
-            {filmsCount > 0 && (
-              <span className="mr-2">🎬 {filmsCount}</span>
-            )}
-            {starshipsCount > 0 && (
-              <span>🚀 {starshipsCount}</span>
-            )}
+          <div className="mt-2 text-sm opacity-80 space-y-1">
+            {PACK_CONFIGURATIONS.map((config) => (
+              <div key={config.id}>
+                <span className="badge badge-ghost mr-2">Config {config.id}</span>
+                {config.label}
+              </div>
+            ))}
           </div>
           <div className="mt-4 pt-4 border-t border-primary-content/20">
             <div className="badge badge-lg badge-warning">
@@ -96,52 +238,34 @@ export const PackCard = ({ packNumber, content }: PackCardProps) => {
             </p>
           </div>
 
+          {(lockedByCooldown || anotherPackActive) && (
+            <div className="alert alert-warning">
+              <span>
+                {anotherPackActive
+                  ? `Termina primero el Sobre #${activePackId} para abrir otro.`
+                  : `Este sobre estará disponible en ${formatCooldown(cooldownSeconds)}.`}
+              </span>
+            </div>
+          )}
+
           <div className="card bg-base-200/50 border-2 border-dashed border-base-300">
             <div className="card-body">
               <h3 className="card-title justify-center mb-4">Contenido del Sobre</h3>
-              
               <div className="space-y-4">
-                {peopleCount > 0 && (
-                  <div className="flex items-center justify-between p-4 bg-base-100 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="text-3xl">👤</span>
-                      <span className="font-semibold">Personajes</span>
-                    </div>
-                    <span className="badge badge-lg badge-primary">
-                      {peopleCount} {peopleCount === 1 ? 'personaje' : 'personajes'}
-                    </span>
-                  </div>
-                )}
-
-                {filmsCount > 0 && (
-                  <div className="flex items-center justify-between p-4 bg-base-100 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="text-3xl">🎬</span>
-                      <span className="font-semibold">Películas</span>
-                    </div>
-                    <span className="badge badge-lg badge-secondary">
-                      {filmsCount} {filmsCount === 1 ? 'película' : 'películas'}
-                    </span>
-                  </div>
-                )}
-
-                {starshipsCount > 0 && (
-                  <div className="flex items-center justify-between p-4 bg-base-100 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="text-3xl">🚀</span>
-                      <span className="font-semibold">Naves</span>
-                    </div>
-                    <span className="badge badge-lg badge-accent">
-                      {starshipsCount} {starshipsCount === 1 ? 'nave' : 'naves'}
-                    </span>
-                  </div>
-                )}
-
-                {totalItems === 0 && (
-                  <div className="text-center p-4 text-base-content/70">
-                    Este sobre está vacío
-                  </div>
-                )}
+                <div className="p-4 bg-base-100 rounded-lg border border-base-200">
+                  <p className="font-semibold mb-2">Configuraciones posibles:</p>
+                  <ul className="space-y-1 text-sm text-base-content/70">
+                    {PACK_CONFIGURATIONS.map((config) => (
+                      <li key={config.id}>
+                        <span className="badge badge-outline mr-2">{config.id}</span>
+                        {config.label}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="p-4 bg-base-100 rounded-lg border border-base-200 text-sm text-base-content/70">
+                  Cada sobre contiene exactamente 5 cartas. Su combinación se revelará al abrirlo.
+                </div>
               </div>
             </div>
           </div>
@@ -154,21 +278,28 @@ export const PackCard = ({ packNumber, content }: PackCardProps) => {
             <Button
               variant="primary"
               onClick={handleBuy}
-              disabled={!canBuy}
+              disabled={disablePurchase}
               className="btn-lg w-full"
             >
-              {canBuy ? `💰 Comprar por ${PACK_COST} puntos` : '❌ Puntos insuficientes'}
+              {disablePurchase
+                ? !canBuy
+                  ? '❌ Puntos insuficientes'
+                  : isProcessingCurrent
+                    ? '✨ Sobre en proceso'
+                    : '⏳ Disponible pronto'
+                : `💰 Comprar por ${PACK_COST} puntos`}
             </Button>
           </div>
         </div>
       </Modal>
 
       {/* Modal de revelación */}
-      {isRevealed && (
+      {isRevealed && currentPackContent && (
         <PackRevealModal
           packId={revealModalId}
-          packContent={content}
-          onClose={() => setIsRevealed(false)}
+          packContent={currentPackContent}
+          configuration={currentConfiguration}
+          onClose={handleRevealClose}
         />
       )}
     </>
@@ -179,10 +310,11 @@ export const PackCard = ({ packNumber, content }: PackCardProps) => {
 interface PackRevealModalProps {
   packId: string
   packContent: PackContent
+  configuration: PackConfiguration | null
   onClose: () => void
 }
 
-const PackRevealModal = ({ packId, packContent, onClose }: PackRevealModalProps) => {
+const PackRevealModal = ({ packId, packContent, configuration, onClose }: PackRevealModalProps) => {
   const [showCards, setShowCards] = useState(false)
   const [processed, setProcessed] = useState<Record<string, boolean>>({})
 
@@ -230,7 +362,7 @@ const PackRevealModal = ({ packId, packContent, onClose }: PackRevealModalProps)
   useEffect(() => {
     setProcessed({})
     setShowCards(false)
-  }, [packId])
+  }, [packId, packContent])
 
   useEffect(() => {
     const modal = document.getElementById(packId) as HTMLDialogElement | null
@@ -271,14 +403,14 @@ const PackRevealModal = ({ packId, packContent, onClose }: PackRevealModalProps)
 
     const allProcessed = packItems.every(({ type, id }) => {
       const key = `${type}-${id}`
-      return processed[key] || isStickerCollected(type, id)
+      return processed[key]
     })
 
     if (allProcessed) {
       const modal = document.getElementById(packId) as HTMLDialogElement | null
       setTimeout(() => modal?.close(), 500)
     }
-  }, [isStickerCollected, packId, packItems, processed, showCards])
+  }, [packId, packItems, processed, showCards])
 
   const markProcessed = (key: string) => {
     setProcessed((prev) => ({
@@ -287,7 +419,13 @@ const PackRevealModal = ({ packId, packContent, onClose }: PackRevealModalProps)
     }))
   }
 
-  const handleAddToAlbum = (item: Person | Film | Starship, type: 'people' | 'films' | 'starships', id: number, name: string, specialClass: SpecialClass | null) => {
+  const handleAddToAlbum = (
+    item: Person | Film | Starship,
+    type: 'people' | 'films' | 'starships',
+    id: number,
+    name: string,
+    specialClass: SpecialClass | null,
+  ) => {
     const added = addSticker({
       id,
       section: type,
@@ -327,12 +465,29 @@ const PackRevealModal = ({ packId, packContent, onClose }: PackRevealModalProps)
               <div className="text-6xl mb-4 animate-fade-in-up">🎉</div>
               <h2 className="text-3xl font-bold mb-2">¡Contenido Revelado!</h2>
               <p className="text-base-content/70">Decide qué hacer con cada carta</p>
+              {configuration && (
+                <p className="mt-3 inline-flex items-center gap-2 text-sm text-base-content/60">
+                  <span className="badge badge-outline">Config {configuration.id}</span>
+                  {configuration.label}
+                </p>
+              )}
             </div>
 
             {packItems.map(({ item, type, id, name, specialClass }, index) => {
               const key = `${type}-${id}`
               const alreadyCollected = isStickerCollected(type, id)
-              const isDisabled = processed[key] || alreadyCollected
+              const canAdd = !alreadyCollected && !processed[key]
+              const canDiscard = !processed[key]
+              const specialBadgeClass = specialClass
+                ? specialClass === 'gold'
+                  ? 'badge-warning'
+                  : 'badge-secondary'
+                : 'badge-ghost'
+              const specialBadgeLabel = specialClass
+                ? specialClass === 'gold'
+                  ? 'Especial · Dorada'
+                  : 'Especial · Limitada'
+                : 'Regular'
 
               return (
                 <div
@@ -341,6 +496,11 @@ const PackRevealModal = ({ packId, packContent, onClose }: PackRevealModalProps)
                   style={{ animationDelay: `${index * 0.1}s` }}
                 >
                   <div className="card-body">
+                    <div className="flex flex-wrap gap-2 text-sm text-base-content/70 mb-3">
+                      <span className="badge badge-ghost">#{id}</span>
+                      <span className="badge badge-outline">{SECTION_LABELS[type]}</span>
+                      <span className={`badge ${specialBadgeClass}`}>{specialBadgeLabel}</span>
+                    </div>
                     <div className="mb-4">
                       {type === 'people' && (
                         <PersonCard
@@ -363,19 +523,27 @@ const PackRevealModal = ({ packId, packContent, onClose }: PackRevealModalProps)
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                      <Button
-                        variant="primary"
-                        onClick={() => handleAddToAlbum(item, type, id, name, specialClass)}
-                        className="btn-lg"
-                        disabled={isDisabled}
-                      >
-                        {alreadyCollected ? '✅ Ya en tu álbum' : '✅ Agregar al Álbum'}
-                      </Button>
+                      {alreadyCollected ? (
+                        <div className="alert alert-warning max-w-xl mx-auto">
+                          <span>
+                            Ya tienes esta carta en tu álbum. Debes descartarla para continuar.
+                          </span>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="primary"
+                          onClick={() => handleAddToAlbum(item, type, id, name, specialClass)}
+                          className="btn-lg"
+                          disabled={!canAdd}
+                        >
+                          ✅ Agregar al Álbum
+                        </Button>
+                      )}
                       <Button
                         variant="secondary"
                         onClick={() => handleDiscard(type, id, name)}
                         className="btn-lg"
-                        disabled={processed[key]}
+                        disabled={!canDiscard}
                       >
                         ❌ Descartar
                       </Button>

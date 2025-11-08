@@ -1,16 +1,23 @@
 import { Link } from 'react-router-dom'
 import { useTheme } from '@/hooks/useTheme'
 import { useAlbum } from '@/store/useAlbum'
+import { useNotifications } from '@/store/useNotifications'
+import { usePackCooldownSeconds, formatCooldown } from '@/store/usePacks'
 
 const Header = () => {
   const { theme, toggleTheme } = useTheme()
   const { points, resetAlbum } = useAlbum()
+  const addNotification = useNotifications((state) => state.addNotification)
+  const cooldownSeconds = usePackCooldownSeconds()
+  const hasCooldown = cooldownSeconds > 0
 
   const handleReset = () => {
-    if (confirm('¿Estás seguro de que quieres borrar todo el almacenamiento? Se reiniciarán tus puntos y tu álbum.')) {
-      resetAlbum()
-      alert('✅ Almacenamiento borrado. Se han restaurado 1000 puntos iniciales.')
+    if (!confirm('¿Estás seguro de que quieres borrar todo el almacenamiento? Se reiniciarán tus puntos y tu álbum.')) {
+      return
     }
+
+    resetAlbum()
+    addNotification('✅ Almacenamiento borrado. Se han restaurado 1000 puntos iniciales.', 'success')
   }
 
   return (
@@ -23,21 +30,25 @@ const Header = () => {
           <ul
             tabIndex={-1}
             className="menu menu-sm dropdown-content bg-base-100 rounded-box z-10 mt-3 w-52 p-2 shadow">
-            <li><Link to="/">Inicio</Link></li>
-            <li><Link to="/get">Obtener</Link></li>
-            <li><Link to="/album">Album</Link></li>
+            <li><Link to="/get">Obtener Láminas</Link></li>
+            <li><Link to="/album">Mi Álbum</Link></li>
           </ul>
         </div>
         <Link to="/" className="btn btn-ghost text-xl">SWX Album</Link>
       </div>
       <div className="navbar-center hidden lg:flex">
         <ul className="menu menu-horizontal px-1">
-          <li><Link to="/">Inicio</Link></li>
-          <li><Link to="/get">Obtener</Link></li>
-          <li><Link to="/album">Album</Link></li>
+          <li><Link to="/get">Obtener Láminas</Link></li>
+          <li><Link to="/album">Mi Álbum</Link></li>
         </ul>
       </div>
       <div className="navbar-end gap-2">
+        {hasCooldown && (
+          <div className="badge badge-lg badge-warning gap-2 px-4 py-3">
+            <span className="text-lg">⏳</span>
+            <span className="font-semibold">Nuevo sobre en {formatCooldown(cooldownSeconds)}</span>
+          </div>
+        )}
         <div className="badge badge-lg badge-primary gap-2 px-4 py-3">
           <span className="text-lg">💰</span>
           <span className="font-bold">{points} puntos</span>

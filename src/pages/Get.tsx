@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { Layout } from '@components'
 import { useQuery } from '@tanstack/react-query'
 import { getAllCollections } from '@/services/Api'
@@ -29,35 +29,6 @@ const Get = () => {
     initializeSpecialAssignments('films', data.films)
     initializeSpecialAssignments('starships', data.starships)
   }, [data, initializeSpecialAssignments])
-
-  const packs = useMemo(() => {
-    if (!data) return []
-
-    const people = data.people
-    const films = data.films
-    const starships = data.starships
-
-    const safeSlice = <T,>(items: T[], start: number, end: number) =>
-      items.slice(start, end).filter(Boolean)
-
-    return [
-      {
-        people: safeSlice(people, 0, 2),
-        films: safeSlice(films, 0, 1),
-        starships: safeSlice(starships, 0, 1),
-      },
-      {
-        people: safeSlice(people, 2, 4),
-        films: safeSlice(films, 1, 2),
-        starships: safeSlice(starships, 1, 2),
-      },
-      {
-        people: safeSlice(people, 4, 6),
-        films: safeSlice(films, 2, 3),
-        starships: safeSlice(starships, 2, 3),
-      },
-    ]
-  }, [data])
 
   if (isLoading) {
     return (
@@ -172,11 +143,15 @@ const Get = () => {
               </p>
             </div>
             <div className="flex justify-center gap-6 flex-wrap">
-              {packs.map((pack, index) => (
+              {[1, 2, 3, 4].map((packNumber) => (
                 <PackCard
-                  key={index}
-                  packNumber={index + 1}
-                  content={pack}
+                  key={packNumber}
+                  packNumber={packNumber}
+                  collections={{
+                    people: data.people,
+                    films: data.films,
+                    starships: data.starships,
+                  }}
                 />
               ))}
             </div>
