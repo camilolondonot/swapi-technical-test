@@ -3,10 +3,12 @@ import { useAlbum } from '@/store/useAlbum'
 import { Button } from '@ui'
 import { Link } from 'react-router-dom'
 import { PersonCard, FilmCard, StarshipCard } from '@cards'
+import { ALBUM_DEFINITIONS } from '@constants/album'
 import type { Sticker } from '@/types/album'
+import type { Person, Film, Starship } from '@/types/api'
 
 const Album = () => {
-  const { films, people, starships, resetAlbum } = useAlbum()
+  const { films, people, starships, resetAlbum, getSpecialClass } = useAlbum()
 
   // Calcular estadísticas
   const countStickers = (section: Record<number, Sticker | null>) => {
@@ -18,9 +20,9 @@ const Album = () => {
   const totalStarships = countStickers(starships)
   const totalStickers = totalFilms + totalPeople + totalStarships
 
-  const maxFilms = 6
-  const maxPeople = 82
-  const maxStarships = 36
+  const maxFilms = ALBUM_DEFINITIONS.films.total
+  const maxPeople = ALBUM_DEFINITIONS.people.total
+  const maxStarships = ALBUM_DEFINITIONS.starships.total
   const maxTotal = maxFilms + maxPeople + maxStarships
 
   const filmsPercentage = Math.round((totalFilms / maxFilms) * 100)
@@ -28,18 +30,69 @@ const Album = () => {
   const starshipsPercentage = Math.round((totalStarships / maxStarships) * 100)
   const totalPercentage = Math.round((totalStickers / maxTotal) * 100)
 
-  // Convertir stickers a formato de cards
-  const peopleCards = Object.entries(people)
-    .filter(([_, sticker]) => sticker !== null)
-    .map(([_, sticker]) => sticker as Sticker)
+  const collectStickers = (section: Record<number, Sticker | null>) =>
+    Object.values(section).filter((value): value is Sticker => value !== null)
 
-  const filmsCards = Object.entries(films)
-    .filter(([_, sticker]) => sticker !== null)
-    .map(([_, sticker]) => sticker as Sticker)
+  const peopleCards = collectStickers(people)
+  const filmsCards = collectStickers(films)
+  const starshipsCards = collectStickers(starships)
 
-  const starshipsCards = Object.entries(starships)
-    .filter(([_, sticker]) => sticker !== null)
-    .map(([_, sticker]) => sticker as Sticker)
+  const toPerson = (sticker: Sticker): Person => ({
+    name: sticker.name,
+    height: 'unknown',
+    mass: 'unknown',
+    gender: 'unknown',
+    hair_color: 'unknown',
+    skin_color: 'unknown',
+    eye_color: 'unknown',
+    birth_year: 'unknown',
+    url: sticker.url,
+    homeworld: '',
+    films: [],
+    species: [],
+    vehicles: [],
+    starships: [],
+    created: '',
+    edited: '',
+  })
+
+  const toFilm = (sticker: Sticker): Film => ({
+    title: sticker.name,
+    episode_id: sticker.id,
+    opening_crawl: '',
+    director: 'unknown',
+    producer: 'unknown',
+    release_date: '',
+    characters: [],
+    planets: [],
+    starships: [],
+    vehicles: [],
+    species: [],
+    created: '',
+    edited: '',
+    url: sticker.url,
+  })
+
+  const toStarship = (sticker: Sticker): Starship => ({
+    name: sticker.name,
+    model: 'unknown',
+    manufacturer: 'unknown',
+    cost_in_credits: 'unknown',
+    length: 'unknown',
+    max_atmosphering_speed: 'unknown',
+    crew: 'unknown',
+    passengers: 'unknown',
+    cargo_capacity: 'unknown',
+    consumables: 'unknown',
+    hyperdrive_rating: 'unknown',
+    MGLT: 'unknown',
+    starship_class: 'unknown',
+    pilots: [],
+    films: [],
+    created: '',
+    edited: '',
+    url: sticker.url,
+  })
 
   const hasStickers = totalStickers > 0
 
@@ -156,34 +209,13 @@ const Album = () => {
                     />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {peopleCards.map((sticker) => {
-                      // Crear objeto Person simulado para la card
-                      const personData = {
-                        name: sticker.name,
-                        height: 'unknown',
-                        mass: 'unknown',
-                        gender: 'unknown',
-                        hair_color: 'unknown',
-                        skin_color: 'unknown',
-                        eye_color: 'unknown',
-                        birth_year: 'unknown',
-                        url: sticker.url || `people/${sticker.id}`,
-                        homeworld: '',
-                        films: [],
-                        species: [],
-                        vehicles: [],
-                        starships: [],
-                        created: '',
-                        edited: '',
-                      }
-                      return (
-                        <PersonCard
-                          key={sticker.id}
-                          person={personData as any}
-                          specialClass={sticker.specialClass}
-                        />
-                      )
-                    })}
+                    {peopleCards.map((sticker) => (
+                      <PersonCard
+                        key={sticker.id}
+                        person={toPerson(sticker)}
+                        specialClass={sticker.specialClass ?? getSpecialClass('people', sticker.id)}
+                      />
+                    ))}
                   </div>
                 </div>
               </section>
@@ -209,31 +241,13 @@ const Album = () => {
                     />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filmsCards.map((sticker) => {
-                      const filmData = {
-                        title: sticker.name,
-                        episode_id: sticker.id,
-                        opening_crawl: '',
-                        director: 'unknown',
-                        producer: 'unknown',
-                        release_date: '',
-                        characters: [],
-                        planets: [],
-                        starships: [],
-                        vehicles: [],
-                        species: [],
-                        created: '',
-                        edited: '',
-                        url: sticker.url || `films/${sticker.id}`,
-                      }
-                      return (
-                        <FilmCard
-                          key={sticker.id}
-                          film={filmData as any}
-                          specialClass={sticker.specialClass}
-                        />
-                      )
-                    })}
+                    {filmsCards.map((sticker) => (
+                      <FilmCard
+                        key={sticker.id}
+                        film={toFilm(sticker)}
+                        specialClass={sticker.specialClass ?? getSpecialClass('films', sticker.id)}
+                      />
+                    ))}
                   </div>
                 </div>
               </section>
@@ -259,35 +273,13 @@ const Album = () => {
                     />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {starshipsCards.map((sticker) => {
-                      const starshipData = {
-                        name: sticker.name,
-                        model: 'unknown',
-                        manufacturer: 'unknown',
-                        cost_in_credits: 'unknown',
-                        length: 'unknown',
-                        max_atmosphering_speed: 'unknown',
-                        crew: 'unknown',
-                        passengers: 'unknown',
-                        cargo_capacity: 'unknown',
-                        consumables: 'unknown',
-                        hyperdrive_rating: 'unknown',
-                        MGLT: 'unknown',
-                        starship_class: 'unknown',
-                        pilots: [],
-                        films: [],
-                        created: '',
-                        edited: '',
-                        url: sticker.url || `starships/${sticker.id}`,
-                      }
-                      return (
-                        <StarshipCard
-                          key={sticker.id}
-                          starship={starshipData as any}
-                          specialClass={sticker.specialClass}
-                        />
-                      )
-                    })}
+                    {starshipsCards.map((sticker) => (
+                      <StarshipCard
+                        key={sticker.id}
+                        starship={toStarship(sticker)}
+                        specialClass={sticker.specialClass ?? getSpecialClass('starships', sticker.id)}
+                      />
+                    ))}
                   </div>
                 </div>
               </section>

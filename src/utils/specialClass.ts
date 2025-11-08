@@ -1,6 +1,5 @@
 import type { SpecialClass } from '@/types/api'
 
-const SPECIAL_CLASSES: SpecialClass[] = ['gold', 'limited', null]
 const SPECIAL_CLASS_PROBABILITY = 0.15 // 15% de probabilidad de ser especial
 
 /**

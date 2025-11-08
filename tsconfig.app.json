@@ -38,7 +38,11 @@
       "@cards": ["./src/components/cards"],
       "@cards/*": ["./src/components/cards/*"],
       "@utils/*": ["./src/utils/*"],
-      "@hooks/*": ["./src/hooks/*"]
+      "@hooks/*": ["./src/hooks/*"],
+      "@store": ["./src/store"],
+      "@store/*": ["./src/store/*"],
+      "@constants": ["./src/constants"],
+      "@constants/*": ["./src/constants/*"]
     }
   },
   "include": ["src"]

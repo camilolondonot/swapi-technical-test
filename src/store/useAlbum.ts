@@ -2,7 +2,11 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { AlbumState, Sticker, Section } from '@/types/album'
 import type { Person, Film, Starship, SpecialClass } from '@/types/api'
-import { getRandomSpecialClass } from '@/utils/specialClass'
+import {
+  createEmptyAlbumSlots,
+  createInitialSpecialAssignments,
+  isDefaultSpecial,
+} from '@constants/album'
 
 const PACK_COST = 25
 const INITIAL_POINTS = 1000
@@ -13,19 +17,17 @@ const extractIdFromUrl = (url: string): number => {
   return id ? parseInt(id, 10) : 0
 }
 
-const createEmptyAssignments = () => ({
-  films: {} as Record<number, SpecialClass | null | undefined>,
-  people: {} as Record<number, SpecialClass | null | undefined>,
-  starships: {} as Record<number, SpecialClass | null | undefined>,
-})
+const initialAlbum = (): AlbumState => {
+  const emptySlots = createEmptyAlbumSlots()
 
-const initialAlbum = (): AlbumState => ({
-  films: Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i + 1, null])),
-  people: Object.fromEntries(Array.from({ length: 82 }, (_, i) => [i + 1, null])),
-  starships: Object.fromEntries(Array.from({ length: 36 }, (_, i) => [i + 1, null])),
-  points: INITIAL_POINTS,
-  specialAssignments: createEmptyAssignments(),
-})
+  return {
+    films: emptySlots.films as Record<number, Sticker | null>,
+    people: emptySlots.people as Record<number, Sticker | null>,
+    starships: emptySlots.starships as Record<number, Sticker | null>,
+    points: INITIAL_POINTS,
+    specialAssignments: createInitialSpecialAssignments(),
+  }
+}
 
 type AssignableItem = Person | Film | Starship
 
@@ -35,8 +37,8 @@ interface AlbumActions {
   buyPack: () => boolean // retorna true si se pudo comprar
   getPoints: () => number
   initializeSpecialAssignments: (section: Section, items: AssignableItem[]) => void
-  getSpecialClass: (section: Section, id: number) => SpecialClass | null
   isStickerCollected: (section: Section, id: number) => boolean
+  getSpecialClass: (section: Section, id: number) => SpecialClass | null
 }
 
 export const useAlbum = create(
@@ -105,7 +107,7 @@ export const useAlbum = create(
               if (!id) return
 
               if (assignments[section][id] === undefined) {
-                assignments[section][id] = getRandomSpecialClass()
+                assignments[section][id] = isDefaultSpecial(section, id) ? 'gold' : null
                 hasChanges = true
               }
             })
@@ -124,7 +126,8 @@ export const useAlbum = create(
         getSpecialClass: (section, id) => {
           const { specialAssignments } = get()
           const value = specialAssignments[section][id]
-          return value ?? null
+          if (value !== undefined) return value
+          return isDefaultSpecial(section, id) ? 'gold' : null
         },
 
         isStickerCollected: (section, id) => {
