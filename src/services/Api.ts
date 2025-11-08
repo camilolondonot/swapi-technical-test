@@ -49,4 +49,25 @@ export const getAllCollections = async () => {
   }
 }
 
+const resourceCache = new Map<string, Promise<unknown>>()
+
+export const fetchResourceByUrl = async <T>(url: string): Promise<T> => {
+  const normalizedUrl = url.startsWith('http') ? url : url.startsWith('/') ? url : `/${url}`
+  const client = url.startsWith('http') ? axios : api
+  const cacheKey = `${client.defaults.baseURL ?? 'ROOT'}|${normalizedUrl}`
+
+  if (!resourceCache.has(cacheKey)) {
+    const request = client
+      .get<T>(normalizedUrl)
+      .then((response) => response.data)
+      .catch((error) => {
+        resourceCache.delete(cacheKey)
+        throw error
+      })
+    resourceCache.set(cacheKey, request)
+  }
+
+  return (await resourceCache.get(cacheKey)) as T
+}
+
 export default api

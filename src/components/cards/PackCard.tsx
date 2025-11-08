@@ -11,6 +11,7 @@ import {
   formatCooldown,
   type PackId,
 } from '@/store/usePacks'
+import { fetchResourceByUrl } from '@/services/Api'
 import { PersonCard, FilmCard, StarshipCard } from './index'
 
 const PACK_COST = 25
@@ -114,6 +115,8 @@ export const PackCard = ({ packNumber, collections }: PackCardProps) => {
   const [isRevealed, setIsRevealed] = useState(false)
   const [currentPackContent, setCurrentPackContent] = useState<PackContent | null>(null)
   const [currentConfiguration, setCurrentConfiguration] = useState<PackConfiguration | null>(null)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [isLoadingContent, setIsLoadingContent] = useState(false)
 
   const packId = packNumber as PackId
   const isCurrentActive = activePackId === packId
@@ -121,12 +124,31 @@ export const PackCard = ({ packNumber, collections }: PackCardProps) => {
   const anotherPackActive = activePackId !== null && !isCurrentActive
   const isProcessingCurrent = isCurrentActive && isRevealed
   const canBuy = points >= PACK_COST
-  const disablePurchase = !canBuy || lockedByCooldown || anotherPackActive || isProcessingCurrent
+  const disablePurchase =
+    !canBuy || lockedByCooldown || anotherPackActive || isProcessingCurrent || isGenerating
   const showCooldownBadge = !isCurrentActive && cooldownSeconds > 0
 
   const totalItems = 5
 
-  const handleBuy = () => {
+  const fetchPackContent = async (content: PackContent): Promise<PackContent> => {
+    const fetchSection = async <T extends { url: string }>(items: T[]): Promise<T[]> =>
+      Promise.all(
+        items.map(async (item) => {
+          const data = await fetchResourceByUrl<T>(item.url)
+          return data
+        })
+      )
+
+    const [people, films, starships] = await Promise.all([
+      fetchSection<Person>(content.people),
+      fetchSection<Film>(content.films),
+      fetchSection<Starship>(content.starships),
+    ])
+
+    return { people, films, starships }
+  }
+
+  const handleBuy = async () => {
     if (lockedByCooldown) {
       addNotification(`Este sobre estará disponible en ${formatCooldown(cooldownSeconds)}.`, 'warning')
       return
@@ -142,40 +164,66 @@ export const PackCard = ({ packNumber, collections }: PackCardProps) => {
       return
     }
 
+    setIsGenerating(true)
+
     const opened = openPack(packId)
     if (!opened) {
+      setIsGenerating(false)
       addNotification('Debes esperar a que termine el temporizador antes de abrir otro sobre.', 'warning')
       return
     }
 
     const configuration = PACK_CONFIGURATIONS[Math.floor(Math.random() * PACK_CONFIGURATIONS.length)]
-    const generatedContent = generatePackContent(configuration, collections)
+    const selection = generatePackContent(configuration, collections)
 
-    if (!generatedContent) {
+    if (!selection) {
       finishPack()
+      setIsGenerating(false)
       addNotification('No hay suficientes cartas para generar este sobre. Intenta más tarde.', 'error')
       return
     }
 
-    const purchased = buyPack()
-    if (!purchased) {
+    try {
+      setCurrentConfiguration(configuration)
+      setCurrentPackContent(selection)
+      setIsRevealed(true)
+      setIsLoadingContent(true)
+
+      const infoModal = document.getElementById(modalId) as HTMLDialogElement
+      infoModal?.close()
+
+      setTimeout(() => {
+        const revealModal = document.getElementById(revealModalId) as HTMLDialogElement
+        revealModal?.showModal()
+      }, 100)
+
+      const fetchedContent = await fetchPackContent(selection)
+
+      const purchased = buyPack()
+      if (!purchased) {
+        finishPack()
+        setIsRevealed(false)
+        setCurrentConfiguration(null)
+        const revealModal = document.getElementById(revealModalId) as HTMLDialogElement
+        revealModal?.close()
+        addNotification('No tienes suficientes puntos para comprar este sobre.', 'error')
+        return
+      }
+
+      setCurrentPackContent(fetchedContent)
+      addNotification(`📦 Sobre #${packNumber} comprado por ${PACK_COST} puntos.`, 'success')
+    } catch {
       finishPack()
-      addNotification('No tienes suficientes puntos para comprar este sobre.', 'error')
-      return
-    }
-
-    setCurrentConfiguration(configuration)
-    setCurrentPackContent(generatedContent)
-    setIsRevealed(true)
-    addNotification(`📦 Sobre #${packNumber} comprado por ${PACK_COST} puntos.`, 'success')
-
-    const infoModal = document.getElementById(modalId) as HTMLDialogElement
-    infoModal?.close()
-
-    setTimeout(() => {
+      setIsRevealed(false)
+      setCurrentConfiguration(null)
+      setCurrentPackContent(null)
       const revealModal = document.getElementById(revealModalId) as HTMLDialogElement
-      revealModal?.showModal()
-    }, 100)
+      revealModal?.close()
+      addNotification('No se pudo obtener el contenido del sobre. Intenta de nuevo.', 'error')
+    } finally {
+      setIsGenerating(false)
+      setIsLoadingContent(false)
+    }
   }
 
   const handleRevealClose = () => {
@@ -185,11 +233,18 @@ export const PackCard = ({ packNumber, collections }: PackCardProps) => {
     finishPack()
   }
 
+  const isCardDisabled = lockedByCooldown || anotherPackActive || isGenerating
+
   return (
     <>
       <div
-        className="relative card bg-linear-to-br from-primary to-primary-focus shadow-lg cursor-pointer hover:shadow-xl transition-all transform hover:scale-105 text-primary-content"
+        className={`relative card bg-linear-to-br from-primary to-primary-focus shadow-lg transition-all text-primary-content ${
+          isCardDisabled
+            ? 'opacity-60 cursor-not-allowed'
+            : 'cursor-pointer hover:shadow-xl transform hover:scale-105'
+        }`}
         onClick={() => {
+          if (isCardDisabled) return
           const modal = document.getElementById(modalId) as HTMLDialogElement
           modal?.showModal()
         }}
@@ -281,24 +336,27 @@ export const PackCard = ({ packNumber, collections }: PackCardProps) => {
               disabled={disablePurchase}
               className="btn-lg w-full"
             >
-              {disablePurchase
-                ? !canBuy
-                  ? '❌ Puntos insuficientes'
-                  : isProcessingCurrent
-                    ? '✨ Sobre en proceso'
-                    : '⏳ Disponible pronto'
-                : `💰 Comprar por ${PACK_COST} puntos`}
+              {isGenerating
+                ? '🔄 Consultando API...'
+                : disablePurchase
+                  ? !canBuy
+                    ? '❌ Puntos insuficientes'
+                    : isProcessingCurrent
+                      ? '✨ Sobre en proceso'
+                      : '⏳ Disponible pronto'
+                  : `💰 Comprar por ${PACK_COST} puntos`}
             </Button>
           </div>
         </div>
       </Modal>
 
       {/* Modal de revelación */}
-      {isRevealed && currentPackContent && (
+      {isRevealed && (
         <PackRevealModal
           packId={revealModalId}
           packContent={currentPackContent}
           configuration={currentConfiguration}
+          isLoading={isLoadingContent}
           onClose={handleRevealClose}
         />
       )}
@@ -309,14 +367,15 @@ export const PackCard = ({ packNumber, collections }: PackCardProps) => {
 // Componente separado para el modal de revelación
 interface PackRevealModalProps {
   packId: string
-  packContent: PackContent
+  packContent: PackContent | null
   configuration: PackConfiguration | null
+  isLoading: boolean
   onClose: () => void
 }
 
-const PackRevealModal = ({ packId, packContent, configuration, onClose }: PackRevealModalProps) => {
+const PackRevealModal = ({ packId, packContent, configuration, isLoading, onClose }: PackRevealModalProps) => {
   const [showCards, setShowCards] = useState(false)
-  const [processed, setProcessed] = useState<Record<string, boolean>>({})
+  const [processed, setProcessed] = useState<Record<string, 'added' | 'discarded'>>({})
 
   const addSticker = useAlbum((state) => state.addSticker)
   const getSpecialClass = useAlbum((state) => state.getSpecialClass)
@@ -324,6 +383,8 @@ const PackRevealModal = ({ packId, packContent, configuration, onClose }: PackRe
   const addNotification = useNotifications((state) => state.addNotification)
 
   const packItems = useMemo(() => {
+    if (!packContent) return []
+
     const items: Array<{
       item: Person | Film | Starship
       type: 'people' | 'films' | 'starships'
@@ -357,10 +418,12 @@ const PackRevealModal = ({ packId, packContent, configuration, onClose }: PackRe
     pushItems(packContent.starships, 'starships')
 
     return items
-  }, [getSpecialClass, packContent.films, packContent.people, packContent.starships])
+  }, [getSpecialClass, packContent])
 
   useEffect(() => {
-    setProcessed({})
+    if (!packContent) {
+      setProcessed({})
+    }
     setShowCards(false)
   }, [packId, packContent])
 
@@ -399,23 +462,38 @@ const PackRevealModal = ({ packId, packContent, configuration, onClose }: PackRe
   }, [onClose, packId])
 
   useEffect(() => {
-    if (!showCards || packItems.length === 0) return
+    if (!showCards || isLoading || packItems.length === 0) return
 
     const allProcessed = packItems.every(({ type, id }) => {
       const key = `${type}-${id}`
-      return processed[key]
+      return processed[key] !== undefined
     })
 
     if (allProcessed) {
       const modal = document.getElementById(packId) as HTMLDialogElement | null
       setTimeout(() => modal?.close(), 500)
     }
-  }, [packId, packItems, processed, showCards])
+  }, [isLoading, packId, packItems, processed, showCards])
 
-  const markProcessed = (key: string) => {
+  useEffect(() => {
+    if (!showCards || packItems.length === 0) return
+
+    setProcessed((prev) => {
+      const next = { ...prev }
+      packItems.forEach(({ type, id }) => {
+        const key = `${type}-${id}`
+        if (isStickerCollected(type, id)) {
+          next[key] = 'added'
+        }
+      })
+      return next
+    })
+  }, [isStickerCollected, packItems, showCards])
+
+  const markProcessed = (key: string, action: 'added' | 'discarded') => {
     setProcessed((prev) => ({
       ...prev,
-      [key]: true,
+      [key]: action,
     }))
   }
 
@@ -440,18 +518,18 @@ const PackRevealModal = ({ packId, packContent, configuration, onClose }: PackRe
       addNotification(`"${name}" ya estaba en tu álbum.`, 'warning')
     }
 
-    markProcessed(`${type}-${id}`)
+    markProcessed(`${type}-${id}`, 'added')
   }
 
   const handleDiscard = (type: 'people' | 'films' | 'starships', id: number, name: string) => {
     addNotification(`"${name}" descartado.`, 'info')
-    markProcessed(`${type}-${id}`)
+    markProcessed(`${type}-${id}`, 'discarded')
   }
 
   return (
     <Modal id={packId} title="" size="5xl">
       <div className="space-y-6">
-        {!showCards ? (
+        {!showCards || packItems.length === 0 ? (
           <div className="text-center py-12 space-y-6">
             <div className="text-8xl animate-bounce">📦</div>
             <div className="text-4xl font-bold animate-pulse">✨ Abriendo sobre... ✨</div>
@@ -471,13 +549,20 @@ const PackRevealModal = ({ packId, packContent, configuration, onClose }: PackRe
                   {configuration.label}
                 </p>
               )}
+              {isLoading && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-sm text-warning">
+                  <span className="loading loading-spinner loading-xs"></span>
+                  <span>Actualizando datos desde la API…</span>
+                </div>
+              )}
             </div>
 
             {packItems.map(({ item, type, id, name, specialClass }, index) => {
               const key = `${type}-${id}`
               const alreadyCollected = isStickerCollected(type, id)
-              const canAdd = !alreadyCollected && !processed[key]
-              const canDiscard = !processed[key]
+              const processedState = processed[key]
+              const canAdd = !alreadyCollected && processedState !== 'added'
+              const canDiscard = processedState !== 'discarded' && processedState !== 'added'
               const specialBadgeClass = specialClass
                 ? specialClass === 'gold'
                   ? 'badge-warning'
@@ -523,29 +608,25 @@ const PackRevealModal = ({ packId, packContent, configuration, onClose }: PackRe
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                      {alreadyCollected ? (
-                        <div className="alert alert-warning max-w-xl mx-auto">
-                          <span>
-                            Ya tienes esta carta en tu álbum. Debes descartarla para continuar.
-                          </span>
-                        </div>
-                      ) : (
-                        <Button
-                          variant="primary"
-                          onClick={() => handleAddToAlbum(item, type, id, name, specialClass)}
-                          className="btn-lg"
-                          disabled={!canAdd}
-                        >
-                          ✅ Agregar al Álbum
-                        </Button>
-                      )}
+                      <Button
+                        variant={alreadyCollected ? 'secondary' : 'primary'}
+                        onClick={() => handleAddToAlbum(item, type, id, name, specialClass)}
+                        className="btn-lg"
+                        disabled={!canAdd}
+                      >
+                        {alreadyCollected
+                          ? '✅ Ya en tu álbum'
+                          : processedState === 'added'
+                            ? '✅ Agregada'
+                            : '✅ Agregar al Álbum'}
+                      </Button>
                       <Button
                         variant="secondary"
                         onClick={() => handleDiscard(type, id, name)}
                         className="btn-lg"
                         disabled={!canDiscard}
                       >
-                        ❌ Descartar
+                        {processedState === 'discarded' ? '🗑️ Descartada' : '❌ Descartar'}
                       </Button>
                     </div>
                   </div>
