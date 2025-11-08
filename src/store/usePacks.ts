@@ -57,10 +57,11 @@ export const usePacks = create(
     {
       name: STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        activePackId: state.activePackId,
-        cooldownUntil: sanitizeCooldown(state.cooldownUntil),
-      }),
+      partialize: (state) =>
+        ({
+          activePackId: state.activePackId,
+          cooldownUntil: sanitizeCooldown(state.cooldownUntil),
+        } as unknown as PackState),
     }
   )
 )

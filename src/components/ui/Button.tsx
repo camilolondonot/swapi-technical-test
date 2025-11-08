@@ -4,9 +4,10 @@ interface ButtonProps {
   children: React.ReactNode
   variant?: 'primary' | 'secondary' | 'link'
   to?: string
-  onClick?: () => void
+  onClick?: () => void | Promise<void>
   className?: string
   type?: 'button' | 'submit' | 'reset'
+  disabled?: boolean
 }
 
 export const Button = ({ 
@@ -15,7 +16,8 @@ export const Button = ({
   to, 
   onClick, 
   className = '',
-  type = 'button'
+  type = 'button',
+  disabled = false,
 }: ButtonProps) => {
   const baseClasses = 'btn'
   
@@ -40,6 +42,7 @@ export const Button = ({
       type={type}
       className={classes}
       onClick={onClick}
+      disabled={disabled}
     >
       {children}
     </button>

@@ -128,7 +128,7 @@ export const PackCard = ({ packNumber, collections }: PackCardProps) => {
     !canBuy || lockedByCooldown || anotherPackActive || isProcessingCurrent || isGenerating
   const showCooldownBadge = !isCurrentActive && cooldownSeconds > 0
 
-  const totalItems = 5
+  const totalItemsLabel = '5 cartas'
 
   const fetchPackContent = async (content: PackContent): Promise<PackContent> => {
     const fetchSection = async <T extends { url: string }>(items: T[]): Promise<T[]> =>
@@ -233,7 +233,7 @@ export const PackCard = ({ packNumber, collections }: PackCardProps) => {
     finishPack()
   }
 
-  const isCardDisabled = lockedByCooldown || anotherPackActive || isGenerating
+  const isCardDisabled = lockedByCooldown || anotherPackActive || isGenerating || isProcessingCurrent
 
   return (
     <>
@@ -264,9 +264,7 @@ export const PackCard = ({ packNumber, collections }: PackCardProps) => {
         <div className="card-body p-6 text-center">
           <div className="text-4xl mb-2">📦</div>
           <h3 className="card-title text-xl justify-center">Sobre #{packNumber}</h3>
-          <p className="opacity-90">
-            {totalItems} {totalItems === 1 ? 'carta' : 'cartas'}
-          </p>
+          <p className="opacity-90">{totalItemsLabel}</p>
           <div className="mt-2 text-sm opacity-80 space-y-1">
             {PACK_CONFIGURATIONS.map((config) => (
               <div key={config.id}>
@@ -561,8 +559,9 @@ const PackRevealModal = ({ packId, packContent, configuration, isLoading, onClos
               const key = `${type}-${id}`
               const alreadyCollected = isStickerCollected(type, id)
               const processedState = processed[key]
-              const canAdd = !alreadyCollected && processedState !== 'added'
-              const canDiscard = processedState !== 'discarded' && processedState !== 'added'
+              const isFinalized = processedState !== undefined
+              const canAdd = !alreadyCollected && !isFinalized
+              const canDiscard = !isFinalized && !alreadyCollected
               const specialBadgeClass = specialClass
                 ? specialClass === 'gold'
                   ? 'badge-warning'
